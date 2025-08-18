@@ -6,6 +6,9 @@ from itertools import product
 from tqdm import tqdm
 
 from hash_helpers import hash_password, verify_password, HASH_FUNCTIONS
+from multi_cracker import multi_dictionary_crack, multi_brute_force_crack
+
+SLOW_HASHES = {'argon2', 'bcrypt'}
 
 def estimate_crack_time(password):
     """
@@ -60,6 +63,7 @@ def brute_force_crack(hash_to_crack, max_length=6, charset=string.ascii_letters 
 
 
 if __name__ == "__main__":
+
     password = input("Enter a password to estimate crack time: ")
     estimated_time = estimate_crack_time(password)
     print(f"Estimated crack time for '{password}': {estimated_time}")
@@ -72,11 +76,20 @@ if __name__ == "__main__":
     if algorithm in ('bcrypt', 'argon2'):
         print("Warning: dictionary and brute-force cracking will be very slow with this algorithm. ")
 
+    processing = input("Single or multi-threaded cracking? (s/m): ").strip().lower()
+    if processing == 'm':
+        print("Using multi-threaded cracking.")
+        dictionary_crack_func = multi_dictionary_crack
+        brute_force_crack_func = multi_brute_force_crack
+    else:
+        print("Using single-threaded cracking.")
+        dictionary_crack_func = dictionary_crack
+        brute_force_crack_func = brute_force_crack
 
     hashed_password = hash_password(password, algorithm=algorithm)
 
     print("Attempting to crack the password using a dictionary of common passwords...")
-    guess, actual_time = dictionary_crack(hashed_password, 'rockyou.txt', algorithm=algorithm)
+    guess, actual_time = dictionary_crack_func(hashed_password, 'rockyou.txt', algorithm=algorithm)
 
     if guess:
         tqdm.write(f"Password '{password}' cracked using dictionary in {actual_time:.2f} seconds: {guess}")
@@ -84,12 +97,18 @@ if __name__ == "__main__":
         tqdm.write(f"Password '{password}' could not be cracked using the dictionary in {actual_time:.2f} seconds.")
         tqdm.write("")  # clean line before next progress bar
 
-        brute_guess, brute_time = brute_force_crack(hashed_password, algorithm=algorithm)
-        total_time = actual_time + brute_time
-
-        if brute_guess:
-            tqdm.write("")  # clean line before result
-            tqdm.write(f"Password '{password}' cracked using brute force in {brute_time:.2f} seconds: {brute_guess}")
+        if algorithm in SLOW_HASHES:
+            tqdm.write(f"Skipping brute-force cracking for {algorithm} (too slow in practice).")
+            total_time = actual_time
         else:
-            tqdm.write("")
-            tqdm.write(f"Password '{password}' could not be cracked using a dictionary or brute force in {total_time:.2f} seconds.")
+            brute_guess, brute_time = brute_force_crack_func(hashed_password, algorithm=algorithm)
+            total_time = actual_time + brute_time
+
+            if brute_guess:
+                tqdm.write("")  # clean line before result
+                tqdm.write(
+                    f"Password '{password}' cracked using brute force in {brute_time:.2f} seconds: {brute_guess}")
+            else:
+                tqdm.write("")
+                tqdm.write(
+                    f"Password '{password}' could not be cracked using a dictionary or brute force in {total_time:.2f} seconds.")
