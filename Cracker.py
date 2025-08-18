@@ -5,6 +5,8 @@ import hashlib
 from itertools import product
 from tqdm import tqdm
 
+from hash_helpers import hash_password, verify_password, HASH_FUNCTIONS
+
 def estimate_crack_time(password):
     """
     Estimate the time it would take to crack a password using zxcvbn.
@@ -16,13 +18,7 @@ def estimate_crack_time(password):
     else:
         return f"{result['crack_times_display']['offline_slow_hashing_1e4_per_second']}"
 
-def hash_password(password):
-    """
-    Hash a password using SHA-256.
-    """
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def dictionary_crack(hash_to_crack, dictionary):
+def dictionary_crack(hash_to_crack, dictionary, algorithm='sha256', **params):
     """
     Attempt to crack a password hash using a dictionary of common passwords.
     """
@@ -33,12 +29,13 @@ def dictionary_crack(hash_to_crack, dictionary):
 
         for line in tqdm(file, total=total_lines, desc="Dictionary Crack", unit="Words"):
             password = line.strip()
-            if hash_password(password) == hash_to_crack:
+            if verify_password(password, hash_to_crack, algorithm=algorithm, **params):
                 elapsed = time.time() - start
                 return password, elapsed
     return None, time.time() - start
 
-def brute_force_crack(hash_to_crack, max_length=8, charset=string.ascii_letters + string.digits + string.punctuation):
+def brute_force_crack(hash_to_crack, max_length=6, charset=string.ascii_letters + string.digits + string.punctuation,
+                      algorithm='sha256', **params):
     """
     Attempt to brute-force crack a password hash with a progress bar.
     """
@@ -52,7 +49,7 @@ def brute_force_crack(hash_to_crack, max_length=8, charset=string.ascii_letters 
             for guess_tuple in tqdm(product(charset, repeat=length), total=total_combinations,
                                     desc=f"Length {length}"):
                 guess_password = ''.join(guess_tuple)
-                if hash_password(guess_password) == hash_to_crack:
+                if verify_password(guess_password, hash_to_crack, algorithm=algorithm, **params):
                     tqdm.write("")  # clean separation from progress bar
                     elapsed = time.time() - start
                     return guess_password, elapsed
@@ -67,10 +64,19 @@ if __name__ == "__main__":
     estimated_time = estimate_crack_time(password)
     print(f"Estimated crack time for '{password}': {estimated_time}")
 
-    hashed_password = hash_password(password)
+    algorithm = input("Enter hashing algorithm (argon2, bcrypt, scrypt, sha256): ").lower()
+    if algorithm not in HASH_FUNCTIONS:
+        print(f"Invalid algorithm '{algorithm}' specified. Defaulting to SHA-256.")
+        algorithm = 'sha256'
+
+    if algorithm in ('bcrypt', 'argon2'):
+        print("Warning: dictionary and brute-force cracking will be very slow with this algorithm. ")
+
+
+    hashed_password = hash_password(password, algorithm=algorithm)
 
     print("Attempting to crack the password using a dictionary of common passwords...")
-    guess, actual_time = dictionary_crack(hashed_password, 'rockyou.txt')
+    guess, actual_time = dictionary_crack(hashed_password, 'rockyou.txt', algorithm=algorithm)
 
     if guess:
         tqdm.write(f"Password '{password}' cracked using dictionary in {actual_time:.2f} seconds: {guess}")
@@ -78,7 +84,7 @@ if __name__ == "__main__":
         tqdm.write(f"Password '{password}' could not be cracked using the dictionary in {actual_time:.2f} seconds.")
         tqdm.write("")  # clean line before next progress bar
 
-        brute_guess, brute_time = brute_force_crack(hashed_password)
+        brute_guess, brute_time = brute_force_crack(hashed_password, algorithm=algorithm)
         total_time = actual_time + brute_time
 
         if brute_guess:
