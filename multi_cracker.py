@@ -10,6 +10,15 @@ from hash_helpers import verify_password
 def dictionary_chunk_worker(password_chunk, hash_to_crack, algorithm, params):
     """
     Worker function for dictionary cracking.
+
+    Args:
+        password_chunk (list): A chunk of passwords to test.
+        hash_to_crack (str): The hash to crack.
+        algorithm (str): The hashing algorithm used.
+        params (dict): Additional parameters for the hashing algorithm.
+
+    Returns:
+        str or None: The cracked password if found, else None.
     """
     for candidate_password in password_chunk:
         if verify_password(candidate_password, hash_to_crack, algorithm=algorithm, **params):
@@ -19,6 +28,15 @@ def dictionary_chunk_worker(password_chunk, hash_to_crack, algorithm, params):
 def brute_force_chunk_worker(tuple_chunk, hash_to_crack, algorithm, params):
     """
     Worker function for brute-force cracking.
+
+    Args:
+        tuple_chunk (list): A chunk of password tuples to test.
+        hash_to_crack (str): The hash to crack.
+        algorithm (str): The hashing algorithm used.
+        params (dict): Additional parameters for the hashing algorithm.
+
+    Returns:
+        str or None: The cracked password if found, else None.
     """
     for guess_tuple in tuple_chunk:
         guess_password = ''.join(guess_tuple)
@@ -27,6 +45,16 @@ def brute_force_chunk_worker(tuple_chunk, hash_to_crack, algorithm, params):
     return None
 
 def chunker(iterable, chunk_size):
+    """
+    Yield successive n-sized chunks from iterable.
+
+    Args:
+        iterable (iterable[T]): Supplied iterable object.
+        chunk_size (int): Size of each chunk.
+
+    Returns:
+        Generator[List[T]]: Chunks of the iterable.
+    """
     it = iter(iterable)
     while True:
         chunk = list(islice(it, chunk_size))
@@ -35,64 +63,43 @@ def chunker(iterable, chunk_size):
         yield chunk
 
 
-def auto_chunk_size(total_candidates, processes=None, k=20):
+def auto_chunk_size(total_candidates, k=20, processes=None):
     """
-    Generic auto chunk size calculator.
-    For dictionary attacks, k is fixed.
-    For brute force, you should pass in a bigger k (or compute dynamically).
+    Calculate an optimal chunk size for multiprocessing.
+
+    Args:
+        total_candidates (int): Number of items to process (e.g., len(dictionary)).
+        k (int): Number of chunks per core (default=20).
+        processes (int): Number of worker processes (defaults to cpu_count()).
+
+    Returns:
+        int: Recommended chunk size.
     """
     if processes is None:
         processes = cpu_count()
 
-    return max(1, total_candidates // (processes * k))
-
-def brute_force_k(length, base_k=50, growth=2.0):
-    """
-    Dynamically scale k based on password length.
-    - base_k: starting multiplier for length=1
-    - growth: exponential growth factor per length
-    """
-    return int(base_k * (growth ** (length - 1)))
-
-def time_chunk(worker, guess_space, chunk_size, pool):
-    """
-    Time how long it takes to process one chunk with the given worker.
-    """
-    chunk = list(islice(guess_space, chunk_size))
-    if not chunk:
-        return None
-
-    start = time.time()
-    list(pool.imap_unordered(worker, [chunk], chunksize=1))  # process just this one chunk
-    return time.time() - start
-
-def auto_k(worker, charset, length, pool, target_time=(0.1, 0.5)):
-    """
-        Dynamically adjust k to get chunk runtimes in the target range.
-    """
-    k = 50  # start guess
-    while True:
-        guess_space = product(charset, repeat=length)
-        elapsed = time_chunk(worker, guess_space, k, pool)
-        if elapsed is None:
-            break
-
-        if elapsed < target_time[0]:  # too fast → increase chunk size
-            k = int(k * 2)
-        elif elapsed > target_time[1]:  # too slow → decrease chunk size
-            k = max(1, int(k / 2))
-        else:
-            break
-
-    return k
+    # Avoid divide-by-zero, and ensure at least 1
+    chunk_size = max(1, total_candidates // (processes * k))
+    return chunk_size
 
 def multi_dictionary_crack(hash_to_crack, dictionary, algorithm='sha256', processes=None, **params):
     """
     Attempt to crack a password hash using a dictionary of common passwords with multiprocessing.
+
+    Args:
+        hash_to_crack (str): The hash to crack.
+        dictionary (str): Path to the dictionary file.
+        algorithm (str): The hashing algorithm used.
+        processes (int): Number of worker processes (defaults to cpu_count()).
+        params (dict): Additional parameters for the hashing algorithm.
+
+    Returns:
+        str or None: The cracked password if found, else None, prompting a change to brute force attack.
     """
     start = time.time()
     if processes is None:
         processes = cpu_count()
+
 
     with open(dictionary, 'r', encoding='utf-8', errors='ignore') as file:
         candidates = [line.strip() for line in file]
@@ -114,14 +121,23 @@ def multi_brute_force_crack(hash_to_crack, max_length=6,
                             algorithm='sha256', processes=None, **params):
     """
     Attempt to brute-force crack a password hash with multiprocessing.
+
+    Args:
+        hash_to_crack (str): The hash to crack.
+        max_length (int): Maximum length of passwords to try.
+        charset (str): Characters to use in brute-force attempts.
+        algorithm (str): The hashing algorithm used.
+        processes (int): Number of worker processes (defaults to cpu_count()).
+        params (dict): Additional parameters for the hashing algorithm.
+
+    Returns:
+        str or None: The cracked password if found, else None.
     """
     start = time.time()
     if processes is None:
         processes = cpu_count()
 
     charset_length = len(charset)
-
-    #chunk_size = 1000
 
     worker = partial(brute_force_chunk_worker, hash_to_crack=hash_to_crack, algorithm=algorithm, params=params)
 
@@ -130,8 +146,11 @@ def multi_brute_force_crack(hash_to_crack, max_length=6,
             total_combinations = charset_length ** length
             guess_space = product(charset, repeat=length)
 
-            k = brute_force_k(length)
-            chunk_size = auto_chunk_size(total_combinations, processes=processes, k=k)
+            base_k = 20  # starting value for length 1
+            growth_factor = 3.5  # how fast k scales with length
+            k = int(base_k * (growth_factor ** (length - 1)))
+
+            chunk_size = auto_chunk_size(total_combinations, k, processes=processes)
 
             for guess in tqdm(pool.imap_unordered(worker, chunker(guess_space, chunk_size)),
                 total=(total_combinations + chunk_size - 1) // chunk_size, desc=f"Length {length}"):

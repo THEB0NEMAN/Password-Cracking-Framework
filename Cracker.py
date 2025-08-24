@@ -13,9 +13,15 @@ SLOW_HASHES = {'argon2', 'bcrypt'}
 def estimate_crack_time(password):
     """
     Estimate the time it would take to crack a password using zxcvbn.
+
+    Args:
+        password (str): The password to evaluate.
+
+    Returns:
+        str: Estimated time to crack the password in a human-readable format.
     """
+
     result = zxcvbn(password)
-    score = result['score']
     if result['crack_times_seconds']['offline_slow_hashing_1e4_per_second'] == 0:
         return "Instantly"
     else:
@@ -24,7 +30,17 @@ def estimate_crack_time(password):
 def dictionary_crack(hash_to_crack, dictionary, algorithm='sha256', **params):
     """
     Attempt to crack a password hash using a dictionary of common passwords.
+
+    Args:
+        hash_to_crack (str): The hash to crack.
+        dictionary (str): Path to the dictionary file.
+        algorithm (str): The hashing algorithm used.
+        **params: Additional parameters for the hashing algorithm.
+
+    Returns:
+        tuple: (cracked password or None, time taken in seconds).
     """
+
     start = time.time()
     with open(dictionary, 'r', encoding='utf-8', errors='ignore') as file:
         total_lines = sum(1 for _ in file)
@@ -41,6 +57,16 @@ def brute_force_crack(hash_to_crack, max_length=6, charset=string.ascii_letters 
                       algorithm='sha256', **params):
     """
     Attempt to brute-force crack a password hash with a progress bar.
+
+    Args:
+        hash_to_crack (str): The hash to crack.
+        max_length (int): Maximum length of passwords to try.
+        charset (str): Characters to use in brute-force attempts.
+        algorithm (str): The hashing algorithm used.
+        **params: Additional parameters for the hashing algorithm.
+
+    Returns:
+        tuple: (cracked password or None, time taken in seconds).
     """
     start = time.time()
     charset_length = len(charset)
